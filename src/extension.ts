@@ -8,6 +8,7 @@
  */
 
 import * as vscode from 'vscode';
+import * as http from 'http';
 import { findAntigravityProcess, ProcessInfo } from './process-finder';
 import { fetchQuota, QuotaSnapshot } from './quota-fetcher';
 
@@ -16,6 +17,7 @@ let pollingTimer: ReturnType<typeof setInterval> | undefined;
 let processInfo: ProcessInfo | null = null;
 let lastSnapshot: QuotaSnapshot | null = null;
 let windowFocused = true;
+let apiServer: http.Server | null = null;
 
 // ─── Activate ───────────────────────────────────────────────────────
 
@@ -75,11 +77,19 @@ export async function activate(ctx: vscode.ExtensionContext) {
                 // Stop polling when user leaves Antigravity
                 stopPolling();
             }
+        }),
+        vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration('antigravityPulse.apiPort')) {
+                startApiServer();
+            }
         })
     );
 
     // Show loading state
     showLoading();
+
+    // Start API Server
+    startApiServer();
 
     // Non-blocking init
     detectAndStart();
@@ -89,6 +99,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
 
 export function deactivate() {
     stopPolling();
+    stopApiServer();
     statusBarItem?.dispose();
 }
 
@@ -289,3 +300,48 @@ function showError(msg: string) {
     statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
     statusBarItem.show();
 }
+
+// ─── API Server ─────────────────────────────────────────────────────────
+
+function startApiServer() {
+    stopApiServer();
+
+    const cfg = vscode.workspace.getConfiguration('antigravityPulse');
+    const port = cfg.get<number>('apiPort', 42424);
+
+    apiServer = http.createServer((req, res) => {
+        if (req.method === 'GET' && (req.url === '/' || req.url === '/quota')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(lastSnapshot || { error: 'No data yet' }));
+        } else {
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            res.end('Not Found');
+        }
+    });
+
+    apiServer.listen(port, '127.0.0.1');
+
+    apiServer.on('listening', () => {
+        const addr = apiServer?.address();
+        const actualPort = typeof addr === 'object' ? addr?.port : port;
+        console.log(`AG-Pulse-API listening on http://127.0.0.1:${actualPort}`);
+    });
+
+    apiServer.on('error', (err: any) => {
+        if (err.code === 'EADDRINUSE') {
+            console.log(`Port ${port} in use, trying ${port + 1}...`);
+            apiServer?.close();
+            apiServer?.listen(port + 1, '127.0.0.1');
+        } else {
+            console.error(`Failed to start API server:`, err);
+        }
+    });
+}
+
+function stopApiServer() {
+    if (apiServer) {
+        apiServer.close();
+        apiServer = null;
+    }
+}
+

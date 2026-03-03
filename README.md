@@ -98,6 +98,14 @@ Hover over the status bar item for a detailed, formatted breakdown:
 2. `Cmd+Shift+P` → **Extensions: Install from VSIX...**
 3. Select the file and reload
 
+**For the Forked version**, run this to install to custom profile:
+
+```bash
+ag --install-extension <ext.vsix> --user-data-dir <data-dir>
+# Example:
+ag --install-extension ./ag-pulse-api-1.4.2.vsix --user-data-dir ~/.ag-profiles/acc-data
+```
+
 </details>
 
 ## Configuration

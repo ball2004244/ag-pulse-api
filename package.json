@@ -1,9 +1,9 @@
 {
-    "name": "antigravity-pulse",
-    "displayName": "Antigravity Pulse",
-    "description": "100% local & super lightweight Antigravity quota monitor",
+    "name": "ag-pulse-api",
+    "displayName": "AG-Pulse-API",
+    "description": "100% local & super lightweight Antigravity quota monitor with API",
     "version": "1.4.2",
-    "publisher": "codavidgarcia",
+    "publisher": "ball2004244",
     "engines": {
         "vscode": "^1.90.0"
     },
@@ -74,6 +74,11 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Pause polling when Antigravity is not focused and resume on return"
+                },
+                "antigravityPulse.apiPort": {
+                    "type": "integer",
+                    "default": 42424,
+                    "description": "Port for the local HTTP API to expose quota data"
                 }
             }
         }
