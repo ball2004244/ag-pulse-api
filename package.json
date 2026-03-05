@@ -79,6 +79,19 @@
                     "type": "integer",
                     "default": 42424,
                     "description": "Port for the local HTTP API to expose quota data"
+                },
+                "antigravityPulse.apiHost": {
+                    "type": "string",
+                    "default": "127.0.0.1",
+                    "enum": [
+                        "127.0.0.1",
+                        "0.0.0.0"
+                    ],
+                    "enumDescriptions": [
+                        "Localhost only (default, secure)",
+                        "All interfaces (allows remote access)"
+                    ],
+                    "description": "Host address for the HTTP API. Use 127.0.0.1 for local-only access, or 0.0.0.0 to allow remote access."
                 }
             }
         }

@@ -79,7 +79,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
             }
         }),
         vscode.workspace.onDidChangeConfiguration((e) => {
-            if (e.affectsConfiguration('antigravityPulse.apiPort')) {
+            if (e.affectsConfiguration('antigravityPulse.apiPort') || e.affectsConfiguration('antigravityPulse.apiHost')) {
                 startApiServer();
             }
         })
@@ -308,6 +308,7 @@ function startApiServer() {
 
     const cfg = vscode.workspace.getConfiguration('antigravityPulse');
     const port = cfg.get<number>('apiPort', 42424);
+    const host = cfg.get<string>('apiHost', '127.0.0.1');
 
     apiServer = http.createServer((req, res) => {
         if (req.method === 'GET' && (req.url === '/' || req.url === '/quota')) {
@@ -319,19 +320,19 @@ function startApiServer() {
         }
     });
 
-    apiServer.listen(port, '127.0.0.1');
+    apiServer.listen(port, host);
 
     apiServer.on('listening', () => {
         const addr = apiServer?.address();
         const actualPort = typeof addr === 'object' ? addr?.port : port;
-        console.log(`AG-Pulse-API listening on http://127.0.0.1:${actualPort}`);
+        console.log(`AG-Pulse-API listening on http://${host}:${actualPort}`);
     });
 
     apiServer.on('error', (err: any) => {
         if (err.code === 'EADDRINUSE') {
             console.log(`Port ${port} in use, trying ${port + 1}...`);
             apiServer?.close();
-            apiServer?.listen(port + 1, '127.0.0.1');
+            apiServer?.listen(port + 1, host);
         } else {
             console.error(`Failed to start API server:`, err);
         }
