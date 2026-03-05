@@ -58,26 +58,32 @@ function getProcessName(): string {
 }
 
 async function findProcess(name: string, workspacePath?: string): Promise<ParsedProcess | null> {
+    const parentPid = process.pid;
+
     const cmd = process.platform === 'win32'
-        ? `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name='${name}'\\" | Select-Object ProcessId,CommandLine | ConvertTo-Json"`
-        : process.platform === 'darwin'
-            ? `pgrep -fl ${name}`
-            : `pgrep -af ${name}`;
+        ? `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name='${name}'\\" | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json"`
+        : `ps -ww -e -o pid,ppid,args`; // Get all processes with PID, PPID, and full command
 
-    const { stdout } = await execAsync(cmd);
-    return parseProcessOutput(stdout, workspacePath);
-}
-
-function parseProcessOutput(stdout: string, workspacePath?: string): ParsedProcess | null {
-    if (process.platform === 'win32') {
-        return parseWindows(stdout);
+    try {
+        const { stdout } = await execAsync(cmd);
+        return parseProcessOutput(stdout, workspacePath, parentPid);
+    } catch {
+        return null; // Execution failed
     }
-    return parseUnix(stdout, workspacePath);
 }
 
-function parseWindows(stdout: string): ParsedProcess | null {
+function parseProcessOutput(stdout: string, workspacePath?: string, parentPid?: number): ParsedProcess | null {
+    if (process.platform === 'win32') {
+        return parseWindows(stdout, workspacePath, parentPid);
+    }
+    return parseUnix(stdout, workspacePath, parentPid);
+}
+
+function parseWindows(stdout: string, workspacePath?: string, parentPid?: number): ParsedProcess | null {
     try {
         let data = JSON.parse(stdout.trim());
+        const wsId = workspacePath ? toWorkspaceId(workspacePath) : null;
+
         if (Array.isArray(data)) {
             // Filter to Antigravity processes only
             data = data.filter((d: any) => {
@@ -87,8 +93,22 @@ function parseWindows(stdout: string): ParsedProcess | null {
                     || cmd.includes('/antigravity/');
             });
             if (data.length === 0) { return null; }
-            data = data[0];
+
+            // 1. Exact PPID match (perfect isolation per-profile/window)
+            let target = parentPid ? data.find((d: any) => d.ParentProcessId === parentPid) : null;
+
+            // 2. Fallback to workspace ID match
+            if (!target && wsId) {
+                target = data.find((d: any) => (d.CommandLine || '').includes(wsId));
+            }
+
+            // 3. Fallback to first available
+            if (!target) {
+                target = data[0];
+            }
+            data = target;
         }
+
         const cmdLine = data.CommandLine || '';
         const pid = data.ProcessId;
         if (!pid) { return null; }
@@ -116,25 +136,56 @@ function toWorkspaceId(folderPath: string): string {
     return 'file' + folderPath.replace(/ /g, '_20').replace(/\//g, '_');
 }
 
-function parseUnix(stdout: string, workspacePath?: string): ParsedProcess | null {
+function parseUnix(stdout: string, workspacePath?: string, parentPid?: number): ParsedProcess | null {
     const wsId = workspacePath ? toWorkspaceId(workspacePath) : null;
-    const lines = stdout.split('\n').filter(l => l.includes('--extension_server_port'));
 
-    // Prefer the line matching our workspace, fall back to first match
-    const target = (wsId && lines.find(l => l.includes(wsId))) || lines[0];
-    if (!target) { return null; }
+    // We only care about language_server lines spanning extension ports
+    const lines = stdout.split('\n')
+        .filter(l => l.includes('--extension_server_port'))
+        .map(l => l.trim())
+        .filter(l => l.length > 0);
 
-    const parts = target.trim().split(/\s+/);
-    const pid = parseInt(parts[0], 10);
-    const cmd = target.substring(parts[0].length).trim();
+    const processes = lines.map(line => {
+        // Look for PID PPID COMMAND format based on ps -ww -e -o pid,ppid,args
+        const match = line.match(/^(\d+)\s+(\d+)?\s+(.*)$/);
+        if (match) {
+            return {
+                pid: parseInt(match[1], 10),
+                ppid: match[2] ? parseInt(match[2], 10) : undefined,
+                cmd: match[3]
+            };
+        }
+        // Fallback for unexpected formats
+        const parts = line.split(/\s+/);
+        return {
+            pid: parseInt(parts[0], 10),
+            ppid: undefined,
+            cmd: line.substring(parts[0].length).trim()
+        };
+    });
 
-    const port = cmd.match(/--extension_server_port[=\s]+(\d+)/);
-    const token = cmd.match(/--csrf_token[=\s]+([a-zA-Z0-9\-]+)/);
+    if (processes.length === 0) { return null; }
+
+    // 1. Exact PPID match (perfect isolation per-profile/window)
+    let target = parentPid ? processes.find(p => p.ppid === parentPid) : null;
+
+    // 2. Fallback to workspace ID match
+    if (!target && wsId) {
+        target = processes.find(p => p.cmd.includes(wsId));
+    }
+
+    // 3. Ultimate fallback
+    if (!target) {
+        target = processes[0];
+    }
+
+    const portMatch = target.cmd.match(/--extension_server_port[=\s]+(\d+)/);
+    const tokenMatch = target.cmd.match(/--csrf_token[=\s]+([a-zA-Z0-9\-]+)/);
 
     return {
-        pid,
-        extensionPort: port ? parseInt(port[1], 10) : 0,
-        csrfToken: token ? token[1] : '',
+        pid: target.pid,
+        extensionPort: portMatch ? parseInt(portMatch[1], 10) : 0,
+        csrfToken: tokenMatch ? tokenMatch[1] : '',
     };
 }
 
