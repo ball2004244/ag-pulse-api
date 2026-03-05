@@ -108,6 +108,14 @@ ag --install-extension ./ag-pulse-api-1.4.2.vsix --user-data-dir ~/.ag-profiles/
 
 </details>
 
+## Local Development & Testing
+
+Since this extension requires no external dependencies (only core VS Code types), building and testing is straightforward:
+1. Ensure dependencies are installed: `npm install` (though it primarily relies on `@types/vscode`)
+2. To compile: `npm run compile` or `npm run watch` (for live recompilation)
+3. To package into a vsix file: `npm run package`
+4. **Test locally:** Open the project in VS Code (or Antigravity IDE) and press \`F5\` to launch a new Extension Development Host window with the extension activated.
+
 ## Configuration
 
 | Setting | Default | Description |
